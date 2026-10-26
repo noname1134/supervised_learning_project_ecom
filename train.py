@@ -1,5 +1,3 @@
-"""Train the churn model and export an unlabeled test batch."""
-
 from pathlib import Path
 
 from typing import Any
