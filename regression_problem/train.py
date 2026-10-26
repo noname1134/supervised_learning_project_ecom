@@ -1,3 +1,11 @@
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+import utils
+
 from pathlib import Path
 
 from typing import Any
@@ -7,13 +15,11 @@ import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.base import BaseEstimator
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LassoCV, Ridge, LinearRegression, RidgeCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, PolynomialFeatures
+from sklearn.preprocessing import PolynomialFeatures
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.3
@@ -25,44 +31,11 @@ ACCURACY_METRIX = ["MAE", "MSE", "RMSE"]
 NA_TOKENS = ["", "NA", "N/A", "n/a", "-", "missing", "null", "None"]
 NUMERIC_FEATURES = ["Date", "Confirmed", "Deaths", "Recovered", "Unemployment", "CPI"]
 CATEGORICAL_FEATURES = ["Country/Region"]
-TOTAL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 DATA_PATH = Path("data/Covid19_With_GDP_Values.csv")
-REFERENCE_DATA_PATH = Path("data/reference_data.csv")
 
 MODEL_PATH = Path("models/gdp_model.joblib")
 FEATURE_NAMES_PATH = Path("models/gdp_model_features_names.csv")
-
-TEST_DATA_PATH = Path("test/test_data.csv")
-TEST_CHURN_DATA_PATH = Path("test/actual_churn.csv")
-
-CHARTS_DIR = Path("charts")
-
-def show(chart_name: str) -> None:
-    CHARTS_DIR.mkdir(exist_ok=True)
-    plt.tight_layout()
-    plt.savefig(CHARTS_DIR / f"{chart_name}.png", dpi=120)
-    plt.show()
-    plt.close("all")
-
-def show_df_correlation(X: pd.DataFrame, y: pd.Series) -> None:
-    X_encoded = pd.get_dummies(X, columns=CATEGORICAL_FEATURES, dtype=float)
-    feature_corr = X_encoded.corr(method="pearson")
-    print("--- Feature-to-Feature Correlation Matrix ---")
-    print(feature_corr.iloc[:5, :5])
-
-    label_corr = X_encoded.corrwith(y, method="pearson").sort_values(ascending=False)
-    print("\n--- Feature-to-Label Correlation ---")
-    print(label_corr.to_string())
-
-
-def correlation_heat_map(df: pd.DataFrame) -> None:
-    corr_matrix = df[NUMERIC_FEATURES + [TARGET_COLUMN]] .corr()
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", fmt=".2f", vmin=-1, vmax=1)
-    plt.title("Feature-to-Feature Correlation Heatmap")
-    plt.tight_layout()
-    show("df_correlation_heat_map")
 
 
 def load_data(path: Path) -> pd.DataFrame:
@@ -73,24 +46,10 @@ def load_data(path: Path) -> pd.DataFrame:
     df_cleaned = df.drop_duplicates(subset=['Country/Region', 'Date'], keep='first')
     return df_cleaned
 
-def build_preprocessor() -> ColumnTransformer:
-    numeric = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler()),
-    ])
-    categorical = Pipeline([
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("encoder", OneHotEncoder(handle_unknown="ignore", drop="if_binary")),
-    ])
-    preprocessor = ColumnTransformer([
-        ("num", numeric, NUMERIC_FEATURES),
-        ("cat", categorical, CATEGORICAL_FEATURES),
-    ])
-    return preprocessor
 
 
 def create_pipeline(estimator: BaseEstimator, include_poly: bool = False) -> Pipeline:
-    steps: list[tuple[str, Any]] = [("preprocessor", build_preprocessor())]
+    steps: list[tuple[str, Any]] = [("preprocessor", utils.build_preprocessor(NUMERIC_FEATURES, CATEGORICAL_FEATURES))]
     if include_poly:
         steps.append(("poly", PolynomialFeatures(degree=1, include_bias=False)))
 
@@ -102,14 +61,9 @@ def get_models() -> dict[str, Pipeline]:
     return {
         "linear_regression": create_pipeline(LinearRegression()),
         "ridge_cv": create_pipeline(RidgeCV(alphas=[0.1, 1.0, 10.0, 100.0])),
-        "lasso_cv": create_pipeline(LassoCV(cv=5, max_iter=10000, random_state=42)),
+        "lasso_cv": create_pipeline(LassoCV(cv=5, max_iter=10000, random_state=RANDOM_STATE)),
         "polynomial_regression": create_pipeline(Ridge(alpha=10.0), include_poly=True)
     }
-
-
-def fit_models(models: dict[str, Pipeline], X_train, y_train) -> None:
-    for name, pipeline in models.items():
-        pipeline.fit(X_train, y_train)
 
 
 def print_models_info(models: dict[str, Pipeline]) -> None:
@@ -201,27 +155,20 @@ def show_models_accuracy(eval_df: pd.DataFrame) -> None:
         ax.annotate(label_text, (p.get_x() + p.get_width() / 2.0, height), ha="center", va="center", xytext=(0, 5), textcoords="offset points", fontsize=9)
 
     plt.tight_layout()
-    show("models_accuracy")
-
-
-def save_model(model: Pipeline, features: list[str]) -> None:
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FEATURE_NAMES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
-    pd.Series(features, name="feature").to_csv(FEATURE_NAMES_PATH, index=False)
+    utils.show("models_accuracy")
 
 
 def main() -> None:
     df = load_data(DATA_PATH)
 
     X, y = df.drop(columns=[TARGET_COLUMN]), df[TARGET_COLUMN]
-    show_df_correlation(X, y)
-    correlation_heat_map(df)
+    utils.show_df_correlation(X, y, CATEGORICAL_FEATURES)
+    utils.correlation_heat_map(df[NUMERIC_FEATURES + [TARGET_COLUMN]])
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
     models = get_models()
-    fit_models(models, X_train, y_train)
+    utils.fit_models(models, X_train, y_train)
     print_models_info(models)
 
     eval_df = evaluate_models(models, X_test, y_test)
@@ -229,9 +176,9 @@ def main() -> None:
 
     optimal_pipeline = models[BEST_MODEL_NAME]
     optimal_pipeline.fit(X, y)
-    save_model(optimal_pipeline, list(X.columns))
+    utils.save_model(optimal_pipeline, MODEL_PATH, list(X.columns), FEATURE_NAMES_PATH)
     print(f"Saved model -> {MODEL_PATH}")
-    print(f"Saved reference data -> {REFERENCE_DATA_PATH}")
+    print(f"Saved feature names -> {FEATURE_NAMES_PATH}")
 
     loaded_model = joblib.load(MODEL_PATH)
 
