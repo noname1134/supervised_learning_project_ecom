@@ -233,6 +233,8 @@ def main() -> None:
     print(f"Saved model -> {MODEL_PATH}")
     print(f"Saved reference data -> {REFERENCE_DATA_PATH}")
 
+    loaded_model = joblib.load(MODEL_PATH)
+
 
 if __name__ == "__main__":
     main()
